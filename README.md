@@ -4,9 +4,11 @@ A message posted to a `MessagePort` while a page goes into the back/forward cach
 
 Chromium, with bfcache, delivers the message.
 
+Live testcase: <https://stefanprobst.github.io/firefox-bfcache-messagechannel/>
+
 ## Steps to reproduce
 
-1. Serve this directory, e.g. `python3 -m http.server 8000`, and open <http://localhost:8000/> in Firefox.
+1. Open <https://stefanprobst.github.io/firefox-bfcache-messagechannel/> in Firefox (or serve this directory, e.g. `python3 -m http.server 8000`, and open <http://localhost:8000/>).
 2. Click "Leave to another page (same origin)" (the cross-origin link to example.com shows the same).
 3. Press the browser's Back button.
 4. Wait a second for the result.
