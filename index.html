@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>MessageChannel message lost on bfcache</title>
+		<style>
+			body {
+				font-family: system-ui, sans-serif;
+				max-width: 50rem;
+				margin: 2rem auto;
+				padding: 0 1rem;
+				line-height: 1.5;
+			}
+			#result {
+				padding: 0.5rem 1rem;
+				font-weight: bold;
+			}
+			#result[data-status="fail"] {
+				background: #fdd;
+			}
+			#result[data-status="pass"] {
+				background: #dfd;
+			}
+			#log {
+				background: #f4f4f4;
+				padding: 0.5rem 1rem;
+				white-space: pre-wrap;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>MessageChannel message posted while entering bfcache is never delivered</h1>
+
+		<ol>
+			<li>Click one of the links below to leave the page.</li>
+			<li>Press the browser's Back button.</li>
+		</ol>
+
+		<p>
+			<a href="other.html">Leave to another page (same origin)</a>
+		</p>
+		<p>
+			<a href="https://example.com/">Leave to https://example.com/ (cross origin)</a>
+		</p>
+
+		<p id="result">Result: waiting for a restore from bfcache.</p>
+
+		<p>
+			<button id="post-again" type="button">Post another message on the same channel</button>
+		</p>
+
+		<h2>Log</h2>
+		<div id="log"></div>
+
+		<script>
+			const logElement = document.getElementById("log");
+			const resultElement = document.getElementById("result");
+
+			const t0 = performance.now();
+			function log(message) {
+				logElement.textContent += `${(performance.now() - t0).toFixed(0).padStart(6)} ms  ${message}\n`;
+			}
+
+			/**
+			 * Messages posted to `port2` are received on `port1`. This is the same technique React's scheduler uses to
+			 * schedule its work loop.
+			 */
+			const channel = new MessageChannel();
+			const posted = new Set();
+			const delivered = new Set();
+			let nextId = 1;
+
+			channel.port1.onmessage = (event) => {
+				delivered.add(event.data.id);
+				log(`message #${event.data.id} (posted during "${event.data.during}") delivered`);
+			};
+
+			function post(during) {
+				const id = nextId++;
+				posted.add(id);
+				channel.port2.postMessage({ id, during });
+				log(`message #${id} posted during "${during}" (document.visibilityState: ${document.visibilityState})`);
+			}
+
+			window.addEventListener("pagehide", (event) => {
+				log(`pagehide (persisted: ${event.persisted})`);
+				post("pagehide");
+
+				/** For comparison: a timer scheduled at the same moment fires after the restore. */
+				setTimeout(() => {
+					log('setTimeout(0) scheduled during "pagehide" fired');
+				}, 0);
+			});
+
+			/**
+			 * Firefox blurs the focused link (the one just clicked) after `pagehide`. This is how frameworks hit the bug:
+			 * React re-renders on blur and schedules its follow-up work with a `MessageChannel` message.
+			 */
+			document.addEventListener("focusout", () => {
+				post("focusout");
+			});
+
+			window.addEventListener("pageshow", (event) => {
+				log(`pageshow (persisted: ${event.persisted})`);
+
+				if (!event.persisted) {
+					return;
+				}
+
+				/** Give pending messages plenty of time to arrive. */
+				setTimeout(() => {
+					const lost = [...posted].filter((id) => !delivered.has(id));
+					if (lost.length > 0) {
+						resultElement.dataset.status = "fail";
+						resultElement.textContent = `FAIL: message(s) ${lost.map((id) => `#${id}`).join(", ")} posted before entering bfcache were never delivered.`;
+					} else {
+						resultElement.dataset.status = "pass";
+						resultElement.textContent = "PASS: every message posted before entering bfcache was delivered.";
+					}
+					log(`after restore: ${posted.size} posted, ${delivered.size} delivered`);
+				}, 1000);
+			});
+
+			document.getElementById("post-again").addEventListener("click", () => {
+				post("click");
+			});
+		</script>
+	</body>
+</html>
